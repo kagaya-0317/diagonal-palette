@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Diagonal Palette PNG Maker</title>
+    <style>
+        :root {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+        }
+
+        .wrap {
+            max-width: 920px;
+            margin: 0 auto;
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 1fr;
+        }
+
+        @media (min-width: 900px) {
+            .wrap {
+                grid-template-columns: 360px 1fr;
+                align-items: start;
+            }
+        }
+
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .row {
+            display: grid;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        select,
+        button {
+            font-size: 16px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            background: #fff;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        #colors {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            gap: 8px;
+        }
+
+        .chip {
+            display: grid;
+            grid-template-columns: 32px 1fr 40px;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #fff;
+            touch-action: manipulation;
+        }
+
+        .swatch {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+        }
+
+        .code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 14px;
+        }
+
+        .handle {
+            user-select: none;
+            text-align: center;
+            font-size: 20px;
+            opacity: 0.6;
+            padding: 6px 0;
+            border-radius: 8px;
+            border: 1px dashed #ddd;
+        }
+
+        .preview {
+            display: grid;
+            gap: 12px;
+            justify-items: start;
+        }
+
+        canvas {
+            width: 500px;
+            height: 500px;
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+        }
+
+        .hint {
+            font-size: 12px;
+            opacity: 0.75;
+            line-height: 1.4;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        a.downloadLink {
+            display: inline-block;
+            text-decoration: none;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+        }
+
+        img#fallbackImg {
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="card row">
+            <div class="row">
+                <label for="preset">プリセット</label>
+                <select id="preset"></select>
+            </div>
+
+            <div class="row" style="margin-top: 8px;">
+                <label>色の順番（ドラッグで並べ替え）</label>
+                <ul id="colors"></ul>
+            </div>
+
+            <div class="hint" style="margin-top: 8px;">
+                ・500×500px 固定 / グラデなし<br />
+                ・左上→右下の順になるように塗り分け<br />
+                ・スマホSafariで「ダウンロード」が効かない場合があるので、下に画像も表示します（長押し保存用）
+            </div>
+        </div>
+
+        <div class="card preview">
+            <canvas id="cv" width="500" height="500"></canvas>
+
+            <div class="actions">
+                <button id="btnPng">PNGを作成</button>
+                <a id="dl" class="downloadLink" href="#" download="diagonal.png" style="display:none;">ダウンロード</a>
+            </div>
+
+            <img id="fallbackImg" alt="generated image preview" />
+            <div class="hint" id="status"></div>
+        </div>
+    </div>
+
+    <!-- SortableJS (touch対応が楽) -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script>
+        const SIZE = 500;
+
+        // プリセット（必要に応じて増やす）
+        const PRESETS = [
+            { name: "虹（7色）", colors: ["#ff0000", "#ff7f00", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#8b00ff"] },
+            { name: "3色：赤→黄→緑", colors: ["#ff0000", "#ffff00", "#00ff00"] },
+            { name: "寒色（5色）", colors: ["#001f3f", "#0074D9", "#7FDBFF", "#39CCCC", "#3D9970"] },
+            { name: "暖色（5色）", colors: ["#85144b", "#ff4136", "#ff851b", "#ffdc00", "#2ecc40"] },
+            { name: "モノクロ（3色）", colors: ["#000000", "#888888", "#ffffff"] },
+            { name: "パステル（6色）", colors: ["#ffd1dc", "#ffe5b4", "#fff2a8", "#c7f9cc", "#bde0fe", "#cdb4db"] },
+        ];
+
+        const $preset = document.getElementById("preset");
+        const $colors = document.getElementById("colors");
+        const $cv = document.getElementById("cv");
+        const ctx = $cv.getContext("2d");
+        const $btnPng = document.getElementById("btnPng");
+        const $dl = document.getElementById("dl");
+        const $fallbackImg = document.getElementById("fallbackImg");
+        const $status = document.getElementById("status");
+
+        let stateColors = [];
+
+        function setStatus(msg) { $status.textContent = msg || ""; }
+
+        function initPresetSelect() {
+            PRESETS.forEach((p, i) => {
+                const opt = document.createElement("option");
+                opt.value = String(i);
+                opt.textContent = p.name;
+                $preset.appendChild(opt);
+            });
+            $preset.addEventListener("change", () => {
+                const idx = Number($preset.value);
+                stateColors = PRESETS[idx].colors.slice();
+                renderColorList();
+                draw();
+                setStatus("");
+            });
+            $preset.value = "0";
+            stateColors = PRESETS[0].colors.slice();
+        }
+
+        function renderColorList() {
+            $colors.innerHTML = "";
+            stateColors.forEach((hex) => {
+                const li = document.createElement("li");
+                li.className = "chip";
+                li.dataset.hex = hex;
+
+                const sw = document.createElement("div");
+                sw.className = "swatch";
+                sw.style.background = hex;
+
+                const code = document.createElement("div");
+                code.className = "code";
+                code.textContent = hex;
+
+                const handle = document.createElement("div");
+                handle.className = "handle";
+                handle.textContent = "≡"; // ドラッグハンドル
+
+                li.appendChild(sw);
+                li.appendChild(code);
+                li.appendChild(handle);
+                $colors.appendChild(li);
+            });
+        }
+
+        function syncStateFromList() {
+            stateColors = Array.from($colors.querySelectorAll(".chip")).map(li => li.dataset.hex);
+        }
+
+        function draw() {
+            const colors = stateColors.length ? stateColors : ["#ffffff"];
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, SIZE, SIZE);
+
+            const diag = Math.ceil(SIZE * Math.SQRT2);
+
+            ctx.save();
+            // キャンバス中心へ → 45度回転 → diag四角を中心配置
+            ctx.translate(SIZE / 2, SIZE / 2);
+            ctx.rotate(Math.PI / 4);
+            ctx.translate(-diag / 2, -diag / 2);
+
+            const w = diag / colors.length;
+            for (let i = 0; i < colors.length; i++) {
+                ctx.fillStyle = colors[i];
+                // 端の隙間を避けるために +1 しておく
+                ctx.fillRect(i * w, 0, w + 1, diag);
+            }
+            ctx.restore();
+        }
+
+        async function makePng() {
+            // iOS対策：toBlobが動かない/ download属性が効かないケースのフォールバックも用意
+            return new Promise((resolve) => {
+                $cv.toBlob((blob) => resolve(blob), "image/png");
+            });
+        }
+
+        async function onClickPng() {
+            setStatus("PNG生成中…");
+            draw();
+
+            const blob = await makePng();
+            if (!blob) {
+                setStatus("PNG生成に失敗（このブラウザでは非対応の可能性）");
+                return;
+            }
+
+            const url = URL.createObjectURL(blob);
+
+            // ダウンロードリンク
+            $dl.href = url;
+            $dl.download = `diagonal_${stateColors.length}colors.png`;
+            $dl.style.display = "inline-block";
+            setStatus("ダウンロードできない場合は、下の画像を長押しして保存してください。");
+
+            // フォールバック画像（長押し保存用）
+            $fallbackImg.src = url;
+            $fallbackImg.style.display = "block";
+        }
+
+        // 並べ替え
+        function initSortable() {
+            new Sortable($colors, {
+                animation: 150,
+                handle: ".handle",
+                onSort: () => {
+                    syncStateFromList();
+                    draw();
+                }
+            });
+        }
+
+        initPresetSelect();
+        renderColorList();
+        initSortable();
+        draw();
+
+        $btnPng.addEventListener("click", onClickPng);
+    </script>
+</body>
+
+</html>
