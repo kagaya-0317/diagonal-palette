@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ja">
 
 <head>
@@ -46,21 +46,22 @@
             opacity: 0.8;
         }
 
-        select,
         button {
             font-size: 16px;
             padding: 10px 12px;
             border-radius: 10px;
             border: 1px solid #ccc;
             background: #fff;
-        }
-
-        button {
             cursor: pointer;
         }
 
         button:active {
             transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
         }
 
         #colors {
@@ -71,16 +72,23 @@
             gap: 8px;
         }
 
+        .rowHeader {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
         .chip {
             display: grid;
-            grid-template-columns: 32px 1fr 40px;
+            grid-template-columns: 40px 32px 1fr;
             align-items: center;
             gap: 10px;
             padding: 10px;
             border: 1px solid #e0e0e0;
             border-radius: 10px;
             background: #fff;
-            touch-action: manipulation;
+            width: 100%;
         }
 
         .swatch {
@@ -88,11 +96,6 @@
             height: 32px;
             border-radius: 8px;
             border: 1px solid rgba(0, 0, 0, 0.15);
-        }
-
-        .code {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-            font-size: 14px;
         }
 
         .handle {
@@ -105,6 +108,40 @@
             border: 1px dashed #ddd;
         }
 
+        .deleteBtn {
+            background: #e53935;
+            border-color: #e53935;
+            color: #fff;
+            font-size: 14px;
+            padding: 8px 10px;
+            justify-self: end;
+        }
+
+        .palette {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, 36px);
+            gap: 8px;
+            justify-content: start;
+        }
+
+        .paletteBtn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            padding: 0;
+        }
+
+        .paletteBtn.selected {
+            outline: 2px solid #333;
+            outline-offset: 2px;
+        }
+
+        .paletteBtn:disabled {
+            opacity: 0.25;
+            cursor: not-allowed;
+        }
+
         .preview {
             display: grid;
             gap: 12px;
@@ -112,17 +149,17 @@
         }
 
         canvas {
-            width: 500px;
-            height: 500px;
-            max-width: 100%;
-            border-radius: 12px;
-            border: 1px solid #ddd;
+            display: none;
         }
 
-        .hint {
-            font-size: 12px;
-            opacity: 0.75;
-            line-height: 1.4;
+        #previewImg {
+            width: 100%;
+            max-width: 500px;
+            aspect-ratio: 1 / 1;
+            height: auto;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+            object-fit: cover;
         }
 
         .actions {
@@ -138,13 +175,6 @@
             border: 1px solid #ccc;
             border-radius: 10px;
         }
-
-        img#fallbackImg {
-            max-width: 100%;
-            border-radius: 12px;
-            border: 1px solid #ddd;
-            display: none;
-        }
     </style>
 </head>
 
@@ -152,120 +182,157 @@
     <div class="wrap">
         <div class="card row">
             <div class="row">
-                <label for="preset">プリセット</label>
-                <select id="preset"></select>
-            </div>
-
-            <div class="row" style="margin-top: 8px;">
-                <label>色の順番（ドラッグで並べ替え）</label>
+                <div class="rowHeader">
+                    <label>色リスト</label>
+                    <button id="btnClear" class="deleteBtn" type="button">一括削除</button>
+                </div>
                 <ul id="colors"></ul>
             </div>
 
-            <div class="hint" style="margin-top: 8px;">
-                ・500×500px 固定 / グラデなし<br />
-                ・左上→右下の順になるように塗り分け<br />
-                ・スマホSafariで「ダウンロード」が効かない場合があるので、下に画像も表示します（長押し保存用）
+            <div class="row" style="margin-top: 8px;">
+                <label>色を追加</label>
+                <div id="palette" class="palette"></div>
+                <button id="btnAdd" type="button" disabled>追加</button>
             </div>
         </div>
 
         <div class="card preview">
             <canvas id="cv" width="500" height="500"></canvas>
+            <img id="previewImg" alt="generated image preview" />
 
             <div class="actions">
-                <button id="btnPng">PNGを作成</button>
-                <a id="dl" class="downloadLink" href="#" download="diagonal.png" style="display:none;">ダウンロード</a>
+                <a id="dl" class="downloadLink" href="#" download="diagonal.png">ダウンロード</a>
             </div>
-
-            <img id="fallbackImg" alt="generated image preview" />
-            <div class="hint" id="status"></div>
         </div>
     </div>
 
-    <!-- SortableJS (touch対応が楽) -->
+    <!-- SortableJS (touch 対応) -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <script>
         const SIZE = 500;
 
-        // プリセット（必要に応じて増やす）
-        const PRESETS = [
-            { name: "虹（7色）", colors: ["#ff0000", "#ff7f00", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#8b00ff"] },
-            { name: "3色：赤→黄→緑", colors: ["#ff0000", "#ffff00", "#00ff00"] },
-            { name: "寒色（5色）", colors: ["#001f3f", "#0074D9", "#7FDBFF", "#39CCCC", "#3D9970"] },
-            { name: "暖色（5色）", colors: ["#85144b", "#ff4136", "#ff851b", "#ffdc00", "#2ecc40"] },
-            { name: "モノクロ（3色）", colors: ["#000000", "#888888", "#ffffff"] },
-            { name: "パステル（6色）", colors: ["#ffd1dc", "#ffe5b4", "#fff2a8", "#c7f9cc", "#bde0fe", "#cdb4db"] },
+        const COLOR_OPTIONS = [
+            { key: "red", name: "赤", hex: "#ff0000" },
+            { key: "orange", name: "オレンジ", hex: "#ff7f00" },
+            { key: "yellow", name: "黄", hex: "#ffff00" },
+            { key: "yellowGreen", name: "黄緑", hex: "#9acd32" },
+            { key: "green", name: "緑", hex: "#00ff00" },
+            { key: "blueGreen", name: "青緑", hex: "#00c4b4" },
+            { key: "lightBlue", name: "水色", hex: "#7fdbff" },
+            { key: "blue", name: "青", hex: "#0000ff" },
+            { key: "purple", name: "紫", hex: "#8b00ff" },
+            { key: "white", name: "白", hex: "#ffffff" },
+            { key: "black", name: "黒", hex: "#000000" }
         ];
 
-        const $preset = document.getElementById("preset");
+        const COLOR_MAP = new Map(COLOR_OPTIONS.map((c) => [c.key, c]));
+
         const $colors = document.getElementById("colors");
         const $cv = document.getElementById("cv");
         const ctx = $cv.getContext("2d");
-        const $btnPng = document.getElementById("btnPng");
         const $dl = document.getElementById("dl");
-        const $fallbackImg = document.getElementById("fallbackImg");
-        const $status = document.getElementById("status");
+        const $previewImg = document.getElementById("previewImg");
+        const $palette = document.getElementById("palette");
+        const $btnAdd = document.getElementById("btnAdd");
+        const $btnClear = document.getElementById("btnClear");
 
-        let stateColors = [];
+        let stateKeys = [];
+        let selectedKey = null;
+        let currentUrl = "";
+        let updateSeq = 0;
 
-        function setStatus(msg) { $status.textContent = msg || ""; }
-
-        function initPresetSelect() {
-            PRESETS.forEach((p, i) => {
-                const opt = document.createElement("option");
-                opt.value = String(i);
-                opt.textContent = p.name;
-                $preset.appendChild(opt);
-            });
-            $preset.addEventListener("change", () => {
-                const idx = Number($preset.value);
-                stateColors = PRESETS[idx].colors.slice();
-                renderColorList();
-                draw();
-                setStatus("");
-            });
-            $preset.value = "0";
-            stateColors = PRESETS[0].colors.slice();
+        function syncStateFromList() {
+            stateKeys = Array.from($colors.querySelectorAll(".chip")).map((li) => li.dataset.key);
         }
 
         function renderColorList() {
             $colors.innerHTML = "";
-            stateColors.forEach((hex) => {
+
+            stateKeys.forEach((key) => {
+                const info = COLOR_MAP.get(key);
                 const li = document.createElement("li");
                 li.className = "chip";
-                li.dataset.hex = hex;
-
-                const sw = document.createElement("div");
-                sw.className = "swatch";
-                sw.style.background = hex;
-
-                const code = document.createElement("div");
-                code.className = "code";
-                code.textContent = hex;
+                li.dataset.key = key;
 
                 const handle = document.createElement("div");
                 handle.className = "handle";
-                handle.textContent = "≡"; // ドラッグハンドル
+                handle.textContent = "≡";
 
-                li.appendChild(sw);
-                li.appendChild(code);
+                const sw = document.createElement("div");
+                sw.className = "swatch";
+                sw.style.background = info.hex;
+
+                const deleteBtn = document.createElement("button");
+                deleteBtn.className = "deleteBtn";
+                deleteBtn.type = "button";
+                deleteBtn.textContent = "削除";
+
+                deleteBtn.addEventListener("click", () => {
+                    const index = stateKeys.indexOf(key);
+                    if (index === -1) {
+                        return;
+                    }
+                    stateKeys.splice(index, 1);
+                    renderColorList();
+                    renderPalette();
+                    updateAddButton();
+                    updatePreview();
+                });
+
                 li.appendChild(handle);
+                li.appendChild(sw);
+                li.appendChild(deleteBtn);
                 $colors.appendChild(li);
             });
         }
 
-        function syncStateFromList() {
-            stateColors = Array.from($colors.querySelectorAll(".chip")).map(li => li.dataset.hex);
+        function renderPalette() {
+            const used = new Set(stateKeys);
+            if (selectedKey && used.has(selectedKey)) {
+                selectedKey = null;
+            }
+
+            $palette.innerHTML = "";
+
+            COLOR_OPTIONS.forEach((info) => {
+                if (used.has(info.key)) {
+                    return;
+                }
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "paletteBtn";
+                btn.style.background = info.hex;
+                btn.dataset.key = info.key;
+
+                if (selectedKey === info.key) {
+                    btn.classList.add("selected");
+                }
+
+                btn.addEventListener("click", () => {
+                    selectedKey = info.key;
+                    renderPalette();
+                    updateAddButton();
+                });
+
+                $palette.appendChild(btn);
+            });
+        }
+
+        function updateAddButton() {
+            $btnAdd.disabled = !selectedKey;
         }
 
         function draw() {
-            const colors = stateColors.length ? stateColors : ["#ffffff"];
+            const colors = stateKeys.length
+                ? stateKeys.map((key) => COLOR_MAP.get(key).hex)
+                : ["#ffffff"];
+
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, SIZE, SIZE);
 
             const diag = Math.ceil(SIZE * Math.SQRT2);
 
             ctx.save();
-            // キャンバス中心へ → 45度回転 → diag四角を中心配置
             ctx.translate(SIZE / 2, SIZE / 2);
             ctx.rotate(Math.PI / 4);
             ctx.translate(-diag / 2, -diag / 2);
@@ -273,60 +340,79 @@
             const w = diag / colors.length;
             for (let i = 0; i < colors.length; i++) {
                 ctx.fillStyle = colors[i];
-                // 端の隙間を避けるために +1 しておく
                 ctx.fillRect(i * w, 0, w + 1, diag);
             }
             ctx.restore();
         }
 
         async function makePng() {
-            // iOS対策：toBlobが動かない/ download属性が効かないケースのフォールバックも用意
             return new Promise((resolve) => {
                 $cv.toBlob((blob) => resolve(blob), "image/png");
             });
         }
 
-        async function onClickPng() {
-            setStatus("PNG生成中…");
+        async function updatePreview() {
+            const seq = ++updateSeq;
             draw();
 
             const blob = await makePng();
-            if (!blob) {
-                setStatus("PNG生成に失敗（このブラウザでは非対応の可能性）");
+            if (!blob || seq !== updateSeq) {
                 return;
             }
 
-            const url = URL.createObjectURL(blob);
+            if (currentUrl) {
+                URL.revokeObjectURL(currentUrl);
+            }
+            currentUrl = URL.createObjectURL(blob);
 
-            // ダウンロードリンク
-            $dl.href = url;
-            $dl.download = `diagonal_${stateColors.length}colors.png`;
-            $dl.style.display = "inline-block";
-            setStatus("ダウンロードできない場合は、下の画像を長押しして保存してください。");
-
-            // フォールバック画像（長押し保存用）
-            $fallbackImg.src = url;
-            $fallbackImg.style.display = "block";
+            $previewImg.src = currentUrl;
+            $dl.href = currentUrl;
+            $dl.download = `diagonal_${stateKeys.length}colors.png`;
         }
 
-        // 並べ替え
+        function onAddColor() {
+            if (!selectedKey) {
+                return;
+            }
+            if (stateKeys.includes(selectedKey)) {
+                return;
+            }
+            stateKeys.push(selectedKey);
+            selectedKey = null;
+            renderColorList();
+            renderPalette();
+            updateAddButton();
+            updatePreview();
+        }
+
+        function onClearColors() {
+            stateKeys = [];
+            selectedKey = null;
+            renderColorList();
+            renderPalette();
+            updateAddButton();
+            updatePreview();
+        }
+
         function initSortable() {
             new Sortable($colors, {
                 animation: 150,
                 handle: ".handle",
                 onSort: () => {
                     syncStateFromList();
-                    draw();
+                    updatePreview();
                 }
             });
         }
 
-        initPresetSelect();
         renderColorList();
+        renderPalette();
+        updateAddButton();
         initSortable();
-        draw();
+        updatePreview();
 
-        $btnPng.addEventListener("click", onClickPng);
+        $btnAdd.addEventListener("click", onAddColor);
+        $btnClear.addEventListener("click", onClearColors);
     </script>
 </body>
 
